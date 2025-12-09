@@ -1,0 +1,145 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      push_images:
+        description: 'Push images to registry'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: build-push-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+env:
+  REGISTRY_GHCR: ghcr.io
+
+jobs:
+  # ============================================================================
+  # Stage 1: Project Detection and Metadata
+  # ============================================================================
+  detect-and-prepare:
+    name: 🔍 Detection & Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      should-push: ${{ steps.meta.outputs.should-push }}
+      platforms: ${{ steps.meta.outputs.platforms }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          # Determine version based on event type
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="latest"
+          fi
+
+          # Determine if should push
+          SHOULD_PUSH="false"
+          if [[ "${{ github.event_name }}" == "push" && ("${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == "refs/heads/develop" || "${{ github.ref_type }}" == "tag") ]]; then
+            SHOULD_PUSH="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.push_images }}" == "true" ]]; then
+            SHOULD_PUSH="true"
+          fi
+
+          # Set platforms (multi-arch builds)
+          PLATFORMS="linux/amd64,linux/arm64"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "should-push=$SHOULD_PUSH" >> $GITHUB_OUTPUT
+          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
+
+          echo "🏷️ Version: $VERSION"
+          echo "📤 Should push: $SHOULD_PUSH"
+          echo "🏗️ Platforms: $PLATFORMS"
+
+  # ============================================================================
+  # Stage 2: Build Docker Images
+  # ============================================================================
+  build-images:
+    name: 🐳 Build ${{ matrix.service }} Image
+    runs-on: ubuntu-latest
+    needs: detect-and-prepare
+    strategy:
+      matrix:
+        service:
+          - name: api
+            context: ./viz-chart-api
+            dockerfile: ./viz-chart-api/Dockerfile
+          - name: mcp-sse
+            context: ./viz-chart-mcp/sse
+            dockerfile: ./viz-chart-mcp/sse/Dockerfile
+          - name: mcp-streamable
+            context: ./viz-chart-mcp/streamable
+            dockerfile: ./viz-chart-mcp/streamable/Dockerfile
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        if: needs.detect-and-prepare.outputs.should-push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY_GHCR }}/${{ github.repository }}/${{ matrix.service.name }}
+          tags: |
+            type=raw,value=${{ needs.detect-and-prepare.outputs.version }}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          platforms: ${{ needs.detect-and-prepare.outputs.platforms }}
+          push: ${{ needs.detect-and-prepare.outputs.should-push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.detect-and-prepare.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          no-cache: false

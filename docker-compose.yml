@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ${REGISTRY:-docker.io}/minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: chart-minio
     ports:
       - "19200:9000"
@@ -14,7 +14,7 @@ services:
       - MINIO_ROOT_PASSWORD=Xmz@323!
     command: server /data --console-address ":9001"
   viz-chart-api:
-    image: ghcr.io/9999-12-31/plugin-viz-chart/viz-chart-api:0.0.1
+    image: ${REGISTRY:-ghcr.io/9999-12-31}/plugin-viz-chart/api:latest
     container_name: viz-chart-api
     ports:
       - "3100:3000"
@@ -34,7 +34,7 @@ services:
     volumes:
       - ./src/index.js:/usr/src/app/src/index.js
   viz-chart-mcp-sse:
-    image: ghcr.io/9999-12-31/plugin-viz-chart/viz-chart-mcp-sse:0.0.1
+    image: ${REGISTRY:-ghcr.io/9999-12-31}/plugin-viz-chart/mcp-sse:latest
     container_name: viz-chart-mcp-sse
     restart: unless-stopped
     ports:
@@ -42,7 +42,7 @@ services:
     environment:
       - VIS_REQUEST_SERVER=http://viz-chart-api:3000/generate
   viz-chart-mcp-streamable:
-    image: ghcr.io/9999-12-31/plugin-viz-chart/viz-chart-mcp-streamable:0.0.1
+    image: ${REGISTRY:-ghcr.io/9999-12-31}/plugin-viz-chart/mcp-streamable:latest
     container_name: viz-chart-mcp-streamable
     restart: unless-stopped
     ports:

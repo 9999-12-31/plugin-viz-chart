@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   viz-chart-mcp-sse:
-    image: ghcr.io/9999-12-31/plugin-viz-chart/viz-chart-mcp-sse:0.0.1
+    image: ${REGISTRY:-ghcr.io/9999-12-31}/plugin-viz-chart/mcp-sse:latest
     container_name: viz-chart-mcp-sse
     restart: unless-stopped
     build:
@@ -12,7 +12,7 @@ services:
       - "1123:1123"
 
   viz-chart-mcp-streamable:
-    image: ghcr.io/9999-12-31/plugin-viz-chart/viz-chart-mcp-streamable:0.0.1
+    image: ${REGISTRY:-ghcr.io/9999-12-31}/plugin-viz-chart/mcp-streamable:latest
     container_name: viz-chart-mcp-streamable
     restart: unless-stopped
     build:
